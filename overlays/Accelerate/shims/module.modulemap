@@ -1,0 +1,4 @@
+module _DarlingAccelerateBNNSShims {
+  header "DarlingAccelerateBNNSShims.h"
+  export *
+}

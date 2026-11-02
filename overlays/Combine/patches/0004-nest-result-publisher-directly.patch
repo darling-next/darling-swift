@@ -1,0 +1,587 @@
+Nest Result.Publisher directly in Result instead of Result.OCombine.Publisher
+
+Apple's Combine declares this publisher as `Result.Publisher` -- the guest SDK's
+Combine.swiftinterface, x86_64-apple-macos slice, declares the type at lines 1727-1739
+(`extension Swift.Result { ... public struct Publisher : Combine.Publisher { ... } }`)
+and `Just.setFailureType(to:)` at line 592 returns
+`Swift.Result<Output, E>.Publisher`. OpenCombine instead nests the same type under its
+`OCombine` disambiguation namespace, so the mangled name of the type and of every
+function returning it carries `OCombine` and no client compiled against Apple's
+interface can bind them. Measured on the ladder: XCSourceControl.framework demands
+    _$ss6ResultO7CombineE9PublisherVMa / VMn / Vyxq__GAcdCMc
+    _$s7Combine4JustV14setFailureType2tos6ResultOAAE9PublisherVyxqd___Gqd__m_ts5ErrorRd__lF
+and the module exports the same four names only with `8OCombineV` spliced in.
+
+Darling builds OpenCombine as the module `Combine` (build-arch.sh), so there is no
+second module to disambiguate from and the extra nesting is pure noise. This patch
+moves the struct (and its private `Inner` subscription) out of `OCombine` to `Result`
+and repoints every `Result<...>.OCombine.Publisher` in the module at it, so one type
+carries both the Apple name and the existing OpenCombine call sites.
+
+`OCombine` itself and the `ocombine` accessor stay (they are OpenCombine's own public
+API), and Optional keeps its own `Optional.OCombine.Publisher` untouched: Apple's
+`Optional.Publisher` is a separate name that no image in this closure demands. The
+`#if !canImport(Combine)` block that declared
+`typealias Publisher = OCombine.Publisher` is deleted -- it is excluded in every build
+of this module, and after this patch its body no longer names anything.
+
+---
+diff -ruN cb-base2/Publishers/Just.swift cb-new2/Publishers/Just.swift
+--- cb-base2/Publishers/Just.swift	2026-10-12 16:24:05.529104139 +0000
++++ cb-new2/Publishers/Just.swift	2026-10-13 03:14:39.161632865 +0000
+@@ -65,7 +65,7 @@
+ 
+     public func tryAllSatisfy(
+         _ predicate: (Output) throws -> Bool
+-    ) -> Result<Bool, Error>.OCombine.Publisher {
++    ) -> Result<Bool, Error>.Publisher {
+         return .init(Result { try predicate(output) })
+     }
+ 
+@@ -75,7 +75,7 @@
+ 
+     public func tryContains(
+         where predicate: (Output) throws -> Bool
+-    ) -> Result<Bool, Error>.OCombine.Publisher {
++    ) -> Result<Bool, Error>.Publisher {
+         return .init(Result { try predicate(output) })
+     }
+ 
+@@ -142,7 +142,7 @@
+ 
+     public func tryMap<ElementOfResult>(
+         _ transform: (Output) throws -> ElementOfResult
+-    ) -> Result<ElementOfResult, Error>.OCombine.Publisher {
++    ) -> Result<ElementOfResult, Error>.Publisher {
+         return .init(Result { try transform(output) })
+     }
+ 
+@@ -189,13 +189,13 @@
+ 
+     public func setFailureType<Failure: Error>(
+         to failureType: Failure.Type
+-    ) -> Result<Output, Failure>.OCombine.Publisher {
++    ) -> Result<Output, Failure>.Publisher {
+         return .init(output)
+     }
+ 
+     public func mapError<Failure: Error>(
+         _ transform: (Never) -> Failure
+-    ) -> Result<Output, Failure>.OCombine.Publisher {
++    ) -> Result<Output, Failure>.Publisher {
+         return .init(output)
+     }
+ 
+@@ -207,7 +207,7 @@
+ 
+     public func tryRemoveDuplicates(
+         by predicate: (Output, Output) throws -> Bool
+-    ) -> Result<Output, Error>.OCombine.Publisher {
++    ) -> Result<Output, Error>.Publisher {
+         return .init(Result { try _ = predicate(output, output); return output })
+     }
+ 
+@@ -226,28 +226,28 @@
+     public func reduce<Accumulator>(
+         _ initialResult: Accumulator,
+         _ nextPartialResult: (Accumulator, Output) -> Accumulator
+-    ) -> Result<Accumulator, Never>.OCombine.Publisher {
++    ) -> Result<Accumulator, Never>.Publisher {
+         return .init(nextPartialResult(initialResult, output))
+     }
+ 
+     public func tryReduce<Accumulator>(
+         _ initialResult: Accumulator,
+         _ nextPartialResult: (Accumulator, Output) throws -> Accumulator
+-    ) -> Result<Accumulator, Error>.OCombine.Publisher {
++    ) -> Result<Accumulator, Error>.Publisher {
+         return .init(Result { try nextPartialResult(initialResult, output) })
+     }
+ 
+     public func scan<ElementOfResult>(
+         _ initialResult: ElementOfResult,
+         _ nextPartialResult: (ElementOfResult, Output) -> ElementOfResult
+-    ) -> Result<ElementOfResult, Never>.OCombine.Publisher {
++    ) -> Result<ElementOfResult, Never>.Publisher {
+         return .init(nextPartialResult(initialResult, output))
+     }
+ 
+     public func tryScan<ElementOfResult>(
+         _ initialResult: ElementOfResult,
+         _ nextPartialResult: (ElementOfResult, Output) throws -> ElementOfResult
+-    ) -> Result<ElementOfResult, Error>.OCombine.Publisher {
++    ) -> Result<ElementOfResult, Error>.Publisher {
+         return .init(Result { try nextPartialResult(initialResult, output) })
+     }
+ 
+diff -ruN cb-base2/Publishers/Publishers.Sequence.swift cb-new2/Publishers/Publishers.Sequence.swift
+--- cb-base2/Publishers/Publishers.Sequence.swift	2026-10-12 16:24:05.531104107 +0000
++++ cb-new2/Publishers/Publishers.Sequence.swift	2026-10-13 03:14:39.161632865 +0000
+@@ -167,17 +167,17 @@
+ 
+     public func allSatisfy(
+         _ predicate: (Elements.Element) -> Bool
+-    ) -> Result<Bool, Failure>.OCombine.Publisher {
++    ) -> Result<Bool, Failure>.Publisher {
+         return .init(sequence.allSatisfy(predicate))
+     }
+ 
+     public func tryAllSatisfy(
+         _ predicate: (Elements.Element) throws -> Bool
+-    ) -> Result<Bool, Error>.OCombine.Publisher {
++    ) -> Result<Bool, Error>.Publisher {
+         return .init(Result { try sequence.allSatisfy(predicate) })
+     }
+ 
+-    public func collect() -> Result<[Elements.Element], Failure>.OCombine.Publisher {
++    public func collect() -> Result<[Elements.Element], Failure>.Publisher {
+         return .init(Array(sequence))
+     }
+ 
+@@ -189,13 +189,13 @@
+ 
+     public func contains(
+         where predicate: (Elements.Element) -> Bool
+-    ) -> Result<Bool, Failure>.OCombine.Publisher {
++    ) -> Result<Bool, Failure>.Publisher {
+         return .init(sequence.contains(where: predicate))
+     }
+ 
+     public func tryContains(
+         where predicate: (Elements.Element) throws -> Bool
+-    ) -> Result<Bool, Error>.OCombine.Publisher {
++    ) -> Result<Bool, Error>.Publisher {
+         return .init(Result { try sequence.contains(where: predicate) })
+     }
+ 
+@@ -242,7 +242,7 @@
+     public func reduce<Accumulator>(
+         _ initialResult: Accumulator,
+         _ nextPartialResult: @escaping (Accumulator, Elements.Element) -> Accumulator
+-    ) -> Result<Accumulator, Failure>.OCombine.Publisher {
++    ) -> Result<Accumulator, Failure>.Publisher {
+         return .init(sequence.reduce(initialResult, nextPartialResult))
+     }
+ 
+@@ -250,7 +250,7 @@
+         _ initialResult: Accumulator,
+         _ nextPartialResult:
+             @escaping (Accumulator, Elements.Element) throws -> Accumulator
+-    ) -> Result<Accumulator, Error>.OCombine.Publisher {
++    ) -> Result<Accumulator, Error>.Publisher {
+         return .init(Result { try sequence.reduce(initialResult, nextPartialResult) })
+     }
+ 
+@@ -295,7 +295,7 @@
+ 
+     public func contains(
+         _ output: Elements.Element
+-    ) -> Result<Bool, Failure>.OCombine.Publisher {
++    ) -> Result<Bool, Failure>.Publisher {
+         return .init(sequence.contains(output))
+     }
+ }
+@@ -326,7 +326,7 @@
+ 
+ extension Publishers.Sequence where Elements: Collection {
+ 
+-    public func count() -> Result<Int, Failure>.OCombine.Publisher {
++    public func count() -> Result<Int, Failure>.Publisher {
+         return .init(sequence.count)
+     }
+ 
+@@ -371,7 +371,7 @@
+         return .init(sequence: Array(sequence[range]))
+     }
+ 
+-    public func count() -> Result<Int, Failure>.OCombine.Publisher {
++    public func count() -> Result<Int, Failure>.Publisher {
+         return .init(sequence.count)
+     }
+ }
+diff -ruN cb-base2/Publishers/Result.Publisher.swift cb-new2/Publishers/Result.Publisher.swift
+--- cb-base2/Publishers/Result.Publisher.swift	2026-10-13 03:14:39.146633207 +0000
++++ cb-new2/Publishers/Result.Publisher.swift	2026-10-13 03:14:39.160632888 +0000
+@@ -7,19 +7,13 @@
+ 
+ extension Result {
+ 
+-    /// A namespace for disambiguation when both OpenCombine and Combine are imported.
++    /// OpenCombine's namespace for disambiguating `Result.Publisher` from the `Publisher`
++    /// protocol when both OpenCombine and Apple's Combine are in scope (SR-11183).
+     ///
+-    /// Combine extends `Result` with a nested type `Publisher`.
+-    /// If you import both OpenCombine and Combine (either explicitly or implicitly,
+-    /// e. g. when importing Foundation), you will not be able
+-    /// to write `Result<Int, Error>.Publisher`,
+-    /// because Swift is unable to understand which `Publisher` you're referring to.
+-    ///
+-    /// So you have to write `Result<Int, Error>.OCombine.Publisher`.
+-    ///
+-    /// This bug is tracked [here](https://bugs.swift.org/browse/SR-11183).
+-    ///
+-    /// You can omit this whenever Combine is not available (e. g. on Linux).
++    /// Darling builds OpenCombine AS the module `Combine` (overlays/build-arch.sh), so there
++    /// is no second module to disambiguate from, and `Publisher` is declared directly on
++    /// `Result` -- the nesting Apple's ABI uses. The namespace and its `ocombine` accessor are
++    /// kept because they are OpenCombine's own public API.
+     public struct OCombine {
+ 
+         fileprivate let result: Result
+@@ -28,67 +22,8 @@
+             self.result = result
+         }
+ 
+-        public var publisher: Publisher {
+-            return Publisher(result)
+-        }
+-
+-        /// A publisher that publishes an output to each subscriber exactly once then
+-        /// finishes, or fails immediately without producing any elements.
+-        ///
+-        /// If `result` is `.success`, then `Once` waits until it receives a request for
+-        /// at least 1 value before sending the output. If `result` is `.failure`,
+-        /// then `Once` sends the failure immediately upon subscription.
+-        ///
+-        /// In contrast with `Just`, a `Once` publisher can terminate with an error
+-        /// instead of sending a value. In contrast with `Optional`, a `Once` publisher
+-        /// always sends one value (unless it terminates with an error).
+-        public struct Publisher: Combine.Publisher {
+-
+-            public typealias Output = Success
+-
+-            /// The result to deliver to each subscriber.
+-            public let result: Result
+-
+-            /// Creates a publisher that delivers the specified result.
+-            ///
+-            /// If the result is `.success`, the `Once` publisher sends the specified
+-            /// output to all subscribers and finishes normally. If the result is
+-            /// `.failure`, then the publisher fails immediately with the specified
+-            /// error.
+-            ///
+-            /// - Parameter result: The result to deliver to each subscriber.
+-            public init(_ result: Result) {
+-                self.result = result
+-            }
+-
+-            /// Creates a publisher that sends the specified output to all subscribers and
+-            /// finishes normally.
+-            ///
+-            /// - Parameter output: The output to deliver to each subscriber.
+-            public init(_ output: Output) {
+-                self.init(.success(output))
+-            }
+-
+-            /// Creates a publisher that immediately terminates upon subscription with
+-            /// the given failure.
+-            ///
+-            /// - Parameter failure: The failure to send when terminating.
+-            public init(_ failure: Failure) {
+-                self.init(.failure(failure))
+-            }
+-
+-            public func receive<Downstream: Subscriber>(subscriber: Downstream)
+-                where Downstream.Input == Success, Downstream.Failure == Failure
+-            {
+-                switch result {
+-                case .success(let value):
+-                    subscriber.receive(subscription: Inner(value: value,
+-                                                           downstream: subscriber))
+-                case .failure(let failure):
+-                    subscriber.receive(subscription: Subscriptions.empty)
+-                    subscriber.receive(completion: .failure(failure))
+-                }
+-            }
++        public var publisher: Result.Publisher {
++            return Result.Publisher(result)
+         }
+     }
+ 
+@@ -96,7 +31,6 @@
+         return OCombine(self)
+     }
+ 
+-#if !canImport(Combine)
+     /// A publisher that publishes an output to each subscriber exactly once then
+     /// finishes, or fails immediately without producing any elements.
+     ///
+@@ -107,15 +41,57 @@
+     /// In contrast with `Just`, a `Once` publisher can terminate with an error instead of
+     /// sending a value. In contrast with `Optional`, a `Once` publisher always sends one
+     /// value (unless it terminates with an error).
+-    public typealias Publisher = OCombine.Publisher
++    public struct Publisher: Combine.Publisher {
++
++        public typealias Output = Success
+ 
+-    public var publisher: Publisher {
+-        return Publisher(self)
++        /// The result to deliver to each subscriber.
++        public let result: Result
++
++        /// Creates a publisher that delivers the specified result.
++        ///
++        /// If the result is `.success`, the `Once` publisher sends the specified
++        /// output to all subscribers and finishes normally. If the result is
++        /// `.failure`, then the publisher fails immediately with the specified
++        /// error.
++        ///
++        /// - Parameter result: The result to deliver to each subscriber.
++        public init(_ result: Result) {
++            self.result = result
++        }
++
++        /// Creates a publisher that sends the specified output to all subscribers and
++        /// finishes normally.
++        ///
++        /// - Parameter output: The output to deliver to each subscriber.
++        public init(_ output: Output) {
++            self.init(.success(output))
++        }
++
++        /// Creates a publisher that immediately terminates upon subscription with
++        /// the given failure.
++        ///
++        /// - Parameter failure: The failure to send when terminating.
++        public init(_ failure: Failure) {
++            self.init(.failure(failure))
++        }
++
++        public func receive<Downstream: Subscriber>(subscriber: Downstream)
++            where Downstream.Input == Success, Downstream.Failure == Failure
++        {
++            switch result {
++            case .success(let value):
++                subscriber.receive(subscription: Inner(value: value,
++                                                       downstream: subscriber))
++            case .failure(let failure):
++                subscriber.receive(subscription: Subscriptions.empty)
++                subscriber.receive(completion: .failure(failure))
++            }
++        }
+     }
+-#endif
+ }
+ 
+-extension Result.OCombine {
++extension Result.Publisher {
+     private final class Inner<Downstream: Subscriber>
+         : Subscription,
+           CustomStringConvertible,
+@@ -155,96 +131,96 @@
+     }
+ }
+ 
+-extension Result.OCombine.Publisher: Equatable
++extension Result.Publisher: Equatable
+     where Output: Equatable, Failure: Equatable
+ {
+ }
+ 
+-extension Result.OCombine.Publisher where Output: Equatable {
++extension Result.Publisher where Output: Equatable {
+ 
+-    public func contains(_ output: Output) -> Result<Bool, Failure>.OCombine.Publisher {
++    public func contains(_ output: Output) -> Result<Bool, Failure>.Publisher {
+         return .init(result.map { $0 == output })
+     }
+ 
+-    public func removeDuplicates() -> Result<Output, Failure>.OCombine.Publisher {
++    public func removeDuplicates() -> Result<Output, Failure>.Publisher {
+         return self
+     }
+ }
+ 
+-extension Result.OCombine.Publisher where Output: Comparable {
++extension Result.Publisher where Output: Comparable {
+ 
+-    public func min() -> Result<Output, Failure>.OCombine.Publisher {
++    public func min() -> Result<Output, Failure>.Publisher {
+         return self
+     }
+ 
+-    public func max() -> Result<Output, Failure>.OCombine.Publisher {
++    public func max() -> Result<Output, Failure>.Publisher {
+         return self
+     }
+ }
+ 
+-extension Result.OCombine.Publisher {
++extension Result.Publisher {
+ 
+     public func allSatisfy(
+         _ predicate: (Output) -> Bool
+-    ) -> Result<Bool, Failure>.OCombine.Publisher {
++    ) -> Result<Bool, Failure>.Publisher {
+         return .init(result.map(predicate))
+     }
+ 
+     public func tryAllSatisfy(
+         _ predicate: (Output) throws -> Bool
+-    ) -> Result<Bool, Error>.OCombine.Publisher {
++    ) -> Result<Bool, Error>.Publisher {
+         return .init(result.tryMap(predicate))
+     }
+ 
+     public func contains(
+         where predicate: (Output) -> Bool
+-    ) -> Result<Bool, Failure>.OCombine.Publisher {
++    ) -> Result<Bool, Failure>.Publisher {
+         return .init(result.map(predicate))
+     }
+ 
+     public func tryContains(
+         where predicate: (Output) throws -> Bool
+-    ) -> Result<Bool, Error>.OCombine.Publisher {
++    ) -> Result<Bool, Error>.Publisher {
+         return .init(result.tryMap(predicate))
+     }
+ 
+-    public func collect() -> Result<[Output], Failure>.OCombine.Publisher {
++    public func collect() -> Result<[Output], Failure>.Publisher {
+         return .init(result.map { [$0] })
+     }
+ 
+     public func min(
+         by areInIncreasingOrder: (Output, Output) -> Bool
+-    ) -> Result<Output, Failure>.OCombine.Publisher {
++    ) -> Result<Output, Failure>.Publisher {
+         return self
+     }
+ 
+     public func tryMin(
+         by areInIncreasingOrder: (Output, Output) throws -> Bool
+-    ) -> Result<Output, Error>.OCombine.Publisher {
++    ) -> Result<Output, Error>.Publisher {
+         return .init(result.tryMap { _ = try areInIncreasingOrder($0, $0); return $0 })
+     }
+ 
+     public func max(
+         by areInIncreasingOrder: (Output, Output
+-    ) -> Bool) -> Result<Output, Failure>.OCombine.Publisher {
++    ) -> Bool) -> Result<Output, Failure>.Publisher {
+         return self
+     }
+ 
+     public func tryMax(
+         by areInIncreasingOrder: (Output, Output) throws -> Bool
+-    ) -> Result<Output, Error>.OCombine.Publisher {
++    ) -> Result<Output, Error>.Publisher {
+         return .init(result.tryMap { _ = try areInIncreasingOrder($0, $0); return $0 })
+     }
+ 
+-    public func count() -> Result<Int, Failure>.OCombine.Publisher {
++    public func count() -> Result<Int, Failure>.Publisher {
+         return .init(result.map { _ in 1 })
+     }
+ 
+-    public func first() -> Result<Output, Failure>.OCombine.Publisher {
++    public func first() -> Result<Output, Failure>.Publisher {
+         return self
+     }
+ 
+-    public func last() -> Result<Output, Failure>.OCombine.Publisher {
++    public func last() -> Result<Output, Failure>.Publisher {
+         return self
+     }
+ 
+@@ -254,84 +230,84 @@
+ 
+     public func map<ElementOfResult>(
+         _ transform: (Output) -> ElementOfResult
+-    ) -> Result<ElementOfResult, Failure>.OCombine.Publisher {
++    ) -> Result<ElementOfResult, Failure>.Publisher {
+         return .init(result.map(transform))
+     }
+ 
+     public func tryMap<ElementOfResult>(
+         _ transform: (Output) throws -> ElementOfResult
+-    ) -> Result<ElementOfResult, Error>.OCombine.Publisher {
++    ) -> Result<ElementOfResult, Error>.Publisher {
+         return .init(result.tryMap(transform))
+     }
+ 
+     public func mapError<TransformedFailure: Error>(
+         _ transform: (Failure) -> TransformedFailure
+-    ) -> Result<Output, TransformedFailure>.OCombine.Publisher {
++    ) -> Result<Output, TransformedFailure>.Publisher {
+         return .init(result.mapError(transform))
+     }
+ 
+     public func removeDuplicates(
+         by predicate: (Output, Output) -> Bool
+-    ) -> Result<Output, Failure>.OCombine.Publisher {
++    ) -> Result<Output, Failure>.Publisher {
+         return self
+     }
+ 
+     public func tryRemoveDuplicates(
+         by predicate: (Output, Output) throws -> Bool
+-    ) -> Result<Output, Error>.OCombine.Publisher {
++    ) -> Result<Output, Error>.Publisher {
+         return .init(result.tryMap { _ = try predicate($0, $0); return $0 })
+     }
+ 
+     public func replaceError(
+         with output: Output
+-    ) -> Result<Output, Never>.OCombine.Publisher {
++    ) -> Result<Output, Never>.Publisher {
+         return .init(.success(result.unwrapOr(output)))
+     }
+ 
+     public func replaceEmpty(
+         with output: Output
+-    ) -> Result<Output, Failure>.OCombine.Publisher {
++    ) -> Result<Output, Failure>.Publisher {
+         return self
+     }
+ 
+-    public func retry(_ times: Int) -> Result<Output, Failure>.OCombine.Publisher {
++    public func retry(_ times: Int) -> Result<Output, Failure>.Publisher {
+         return self
+     }
+ 
+     public func reduce<Accumulator>(
+         _ initialResult: Accumulator,
+         _ nextPartialResult: (Accumulator, Output) -> Accumulator
+-    ) -> Result<Accumulator, Failure>.OCombine.Publisher {
++    ) -> Result<Accumulator, Failure>.Publisher {
+         return .init(result.map { nextPartialResult(initialResult, $0) })
+     }
+ 
+     public func tryReduce<Accumulator>(
+         _ initialResult: Accumulator,
+         _ nextPartialResult: (Accumulator, Output) throws -> Accumulator
+-    ) -> Result<Accumulator, Error>.OCombine.Publisher{
++    ) -> Result<Accumulator, Error>.Publisher{
+         return .init(result.tryMap { try nextPartialResult(initialResult, $0) })
+     }
+ 
+     public func scan<ElementOfResult>(
+         _ initialResult: ElementOfResult,
+         _ nextPartialResult: (ElementOfResult, Output) -> ElementOfResult
+-    ) -> Result<ElementOfResult, Failure>.OCombine.Publisher {
++    ) -> Result<ElementOfResult, Failure>.Publisher {
+         return .init(result.map { nextPartialResult(initialResult, $0) })
+     }
+ 
+     public func tryScan<ElementOfResult>(
+         _ initialResult: ElementOfResult,
+         _ nextPartialResult: (ElementOfResult, Output) throws -> ElementOfResult
+-    ) -> Result<ElementOfResult, Error>.OCombine.Publisher {
++    ) -> Result<ElementOfResult, Error>.Publisher {
+         return .init(result.tryMap { try nextPartialResult(initialResult, $0) })
+     }
+ }
+ 
+-extension Result.OCombine.Publisher where Failure == Never {
++extension Result.Publisher where Failure == Never {
+ 
+     public func setFailureType<Failure: Error>(
+         to failureType: Failure.Type
+-    ) -> Result<Output, Failure>.OCombine.Publisher {
++    ) -> Result<Output, Failure>.Publisher {
+         return .init(result.success)
+     }
+ }

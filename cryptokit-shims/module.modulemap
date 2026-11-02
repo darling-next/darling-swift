@@ -1,0 +1,10 @@
+// The Darling SDK has these headers but no Clang module maps for them.
+// Import real SDK declarations; do not redeclare Security or authentication ABI.
+module Security [system] {
+    header "CryptoKitSecurity.h"
+    export *
+}
+module LocalAuthentication [system] {
+    header "CryptoKitLocalAuthentication.h"
+    export *
+}

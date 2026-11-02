@@ -1,0 +1,4 @@
+module _DarlingUniformTypeIdentifiersShims {
+  header "DarlingUniformTypeIdentifiersShims.h"
+  export *
+}

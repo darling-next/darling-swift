@@ -1,0 +1,4 @@
+module _DarlingNaturalLanguageShims {
+  header "DarlingNaturalLanguageShims.h"
+  export *
+}

@@ -1,0 +1,4 @@
+module _DarlingOSLogShims {
+  header "DarlingOSLogShims.h"
+  export *
+}

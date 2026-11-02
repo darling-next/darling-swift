@@ -1,1 +1,5 @@
 *.dylib filter=lfs diff=lfs merge=lfs -text
+# Private-framework payload binaries keep the install-name base name (no extension), so the *.dylib
+# rule above does not reach them: ArgumentParserInternal.framework/Versions/A/ArgumentParserInternal is
+# one. Same policy as the dylibs -- binaries live in LFS, the sources that build them live in git.
+private-frameworks/** filter=lfs diff=lfs merge=lfs -text

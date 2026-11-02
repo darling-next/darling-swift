@@ -1,0 +1,55 @@
+diff --git a/Sources/Crypto/Keys/EC/BoringSSL/NISTCurvesKeys_boring.swift b/Sources/Crypto/Keys/EC/BoringSSL/NISTCurvesKeys_boring.swift
+index 10c9e71..55d8751 100644
+--- a/Sources/Crypto/Keys/EC/BoringSSL/NISTCurvesKeys_boring.swift
++++ b/Sources/Crypto/Keys/EC/BoringSSL/NISTCurvesKeys_boring.swift
+@@ -116,7 +116,10 @@ struct OpenSSLNISTCurvePublicKeyImpl<Curve: OpenSSLSupportedNISTCurve>: Sendable
+         self.key = try BoringSSLECPublicKeyWrapper(compressedRepresentation: compressedRepresentation)
+     }
+ 
+-    @inlinable
++    // Darling: Swift 6.3 rejects `@inlinable` on this initializer with "'self' used before
++    // 'self.init' call or assignment to 'self'" (the sibling initializers, which are not
++    // @inlinable, compile). The initializer itself is unchanged; only the attribute is gone, and the
++    // type is internal (@usableFromInline), so nothing outside the module can have inlined it.
+     init(wrapping key: BoringSSLECPublicKeyWrapper<Curve>) {
+         self.key = key
+     }
+diff --git a/Sources/Crypto/Keys/EC/BoringSSL/Ed25519_boring.swift b/Sources/Crypto/Keys/EC/BoringSSL/Ed25519_boring.swift
+--- a/Sources/Crypto/Keys/EC/BoringSSL/Ed25519_boring.swift
++++ b/Sources/Crypto/Keys/EC/BoringSSL/Ed25519_boring.swift
+@@ -106,7 +106,10 @@ extension Curve25519.Signing {
+         @usableFromInline
+         var keyBytes: [UInt8]
+ 
+-        @inlinable
++        // Darling: Swift 6.3 rejects this non-frozen internal type's stored
++        // property initialization in an @inlinable initializer, as for NIST
++        // above. Retain the authoritative length check and bytes unchanged;
++        // only remove serialization of this internal initializer's body.
+         init<D: ContiguousBytes>(rawRepresentation: D) throws {
+             self.keyBytes = try rawRepresentation.withUnsafeBytes { keyBytesPtr in
+                 guard keyBytesPtr.count == 32 else {
+diff --git a/Sources/CryptoBoringWrapper/AEAD/BoringSSLAEAD.swift b/Sources/CryptoBoringWrapper/AEAD/BoringSSLAEAD.swift
+--- a/Sources/CryptoBoringWrapper/AEAD/BoringSSLAEAD.swift
++++ b/Sources/CryptoBoringWrapper/AEAD/BoringSSLAEAD.swift
+@@ -349,15 +349,11 @@ extension BoringSSLAEAD.AEADContext {
+         authenticatedData: RawSpan
+     ) throws -> Data {
+         var output = Data(copying: ciphertext)
+-        if #available(visionOS 1.1, *) {
+-            var outputSpan = output.mutableBytes
+-            try open(message: &outputSpan, nonce: nonceBytes, tag: tagBytes, authenticatedData: authenticatedData)
+-        } else {
+-            // For some reason `Data.mutableBytes` is not available on visionOS 1.0 so we'll bounce through wUSMB.
+-            try output.withUnsafeMutableBytes { bytes in
+-                var outputSpan = bytes.mutableBytes
+-                try open(message: &outputSpan, nonce: nonceBytes, tag: tagBytes, authenticatedData: authenticatedData)
+-            }
++        // Darling's Foundation Data predates mutableBytes. Use the upstream
++        // buffer-based path on every platform, with the same storage and AEAD operation.
++        try output.withUnsafeMutableBytes { (bytes: UnsafeMutableRawBufferPointer) in
++            var outputSpan = bytes.mutableBytes
++            try open(message: &outputSpan, nonce: nonceBytes, tag: tagBytes, authenticatedData: authenticatedData)
+         }
+         return output
+     }

@@ -1,0 +1,4 @@
+module _DarlingSceneKitShims {
+  header "DarlingSceneKitShims.h"
+  export *
+}

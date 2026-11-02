@@ -1,0 +1,4 @@
+module _DarlingQuartzCoreShims {
+  header "DarlingQuartzCoreShims.h"
+  export *
+}

@@ -1,0 +1,21 @@
+module _SwiftObjectiveCOverlayShims {
+  header "ObjectiveCOverlayShims.h"
+  export *
+}
+module _SwiftDispatchOverlayShims {
+  header "DispatchOverlayShims.h"
+  export *
+}
+module _SwiftOSOverlayShims {
+  header "OSOverlayShims.h"
+  export *
+}
+module _SwiftXPCOverlayShims {
+  header "XPCOverlayShims.h"
+  export *
+}
+module _FoundationICU [system] {
+  header "FoundationICU.h"
+  export *
+  export *
+}
